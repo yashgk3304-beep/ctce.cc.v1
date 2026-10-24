@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>CT-C Assistant Options</title>
+    <link rel="stylesheet" href="./options.css" />
+  </head>
+  <body>
+    <main class="wrap">
+      <h1>CT-C Assistant</h1>
+      <p class="lede">
+        Read-only helper for CodeTantra C practice. Nothing is typed or clicked on the
+        CodeTantra page for you.
+      </p>
+
+      <section id="consent" class="card" hidden>
+        <h2>First-run consent</h2>
+        <p>
+          When you use auto-suggest, this extension sends to Google’s Gemini API only:
+          the visible question statement, visible editor code, visible sample tests, and
+          local type hints. It never sends your URL, cookies, account name, email, avatar,
+          or other page chrome. Text is redacted for emails, phones, and ID-like strings
+          before sending.
+        </p>
+        <p>
+          Data use differs between free and paid Gemini usage. Review the current
+          <a
+            href="https://ai.google.dev/gemini-api/terms"
+            target="_blank"
+            rel="noopener noreferrer"
+            >Gemini API Terms</a
+          >.
+        </p>
+        <button type="button" id="accept-consent">I understand — continue</button>
+      </section>
+
+      <section class="card" id="main-options">
+        <h2>Gemini</h2>
+        <label>
+          API key
+          <input type="password" id="api-key" autocomplete="off" spellcheck="false" />
+        </label>
+        <p class="hint">
+          Stored only in <code>chrome.storage.local</code>, sent only as
+          <code>x-goog-api-key</code>, never exposed to content scripts. Restrict the key
+          to the Generative Language API and set quota alerts in Google AI Studio / Cloud.
+        </p>
+        <div class="row">
+          <button type="button" id="save-key">Save key</button>
+          <button type="button" id="load-models">Load models</button>
+        </div>
+        <label>
+          Fast model
+          <select id="fast-model"></select>
+        </label>
+        <label>
+          Strong model
+          <select id="strong-model"></select>
+        </label>
+        <p id="model-status" class="status" role="status"></p>
+        <p>Requests today: <strong id="daily-count">0</strong></p>
+      </section>
+
+      <section class="card">
+        <h2>Behaviour</h2>
+        <label class="check"><input type="checkbox" id="auto-suggest" /> Auto-suggest</label>
+        <label class="check"><input type="checkbox" id="auto-expand" /> Auto-expand panel when ready</label>
+        <label class="check"><input type="checkbox" id="auto-verify" /> Auto-verify after static screen</label>
+        <label class="check"><input type="checkbox" id="hint-first" /> Hint first (code behind Reveal)</label>
+        <label class="check"><input type="checkbox" id="o2-ub" /> Also run -O2 UB check (optional)</label>
+        <label>
+          C standard
+          <input type="text" id="c-standard" value="gnu11" />
+        </label>
+        <label>
+          Test timeout (ms)
+          <input type="number" id="test-timeout" min="500" max="30000" step="100" />
+        </label>
+      </section>
+
+      <section class="card">
+        <h2>Local helper</h2>
+        <label>
+          Port
+          <input type="number" id="helper-port" min="1024" max="65535" />
+        </label>
+        <label>
+          Token
+          <input type="password" id="helper-token" autocomplete="off" />
+        </label>
+        <p class="hint">
+          Run <code>npm run helper:init</code>, paste the token once, then keep
+          <code>npm run helper</code> open each session.
+        </p>
+        <button type="button" id="test-helper">Test helper</button>
+        <p id="helper-status" class="status" role="status"></p>
+      </section>
+
+      <section class="card">
+        <h2>Cache &amp; privacy</h2>
+        <button type="button" id="clear-cache">Clear suggestion cache</button>
+        <label class="check"><input type="checkbox" id="logging" /> Local debug logs (redacted, off by default)</label>
+      </section>
+
+      <section class="card">
+        <h2>Diagnostics</h2>
+        <button type="button" id="copy-diag">Copy page-structure report</button>
+        <p class="hint">
+          Open a CodeTantra tab first, then click. Paste the JSON back for selector
+          calibration (see docs/CALIBRATION.md). No question text or URL path is included.
+        </p>
+        <p id="diag-status" class="status" role="status"></p>
+      </section>
+    </main>
+    <script type="module" src="./options.ts"></script>
+  </body>
+</html>
