@@ -1,0 +1,8 @@
+{
+  "codeTantraMatch": "https://*.codetantra.com/*",
+  "geminiMatch": "https://generativelanguage.googleapis.com/*",
+  "helperPort": 47831,
+  "extensionName": "CT-C Assistant",
+  "extensionVersion": "0.1.0",
+  "minimumChromeVersion": "116"
+}
