@@ -3,6 +3,7 @@ import { LlmError, type LlmGenerateOptions, type LlmGenerateResult, type LlmProv
 
 const DEFAULT_TIMEOUT_MS = 60_000;
 const MAX_TEMPERATURE = 0.2;
+const LIST_URL = 'https://generativelanguage.googleapis.com/v1beta/models';
 
 function clampTemperature(t?: number): number {
   const v = t ?? MAX_TEMPERATURE;
@@ -13,7 +14,7 @@ function mapError(err: unknown, status?: number): LlmError {
   if (err instanceof LlmError) return err;
   const msg = err instanceof Error ? err.message : String(err);
   if (status === 401 || status === 403) return new LlmError(msg, 'auth', status);
-  if (status === 400) return new LlmError(msg, 'not_found', status);
+  if (status === 400 || /not found|NOT_FOUND/i.test(msg)) return new LlmError(msg, 'not_found', status);
   if (status === 429) return new LlmError(msg, 'rate_limit', status);
   if (status !== undefined && status >= 500) return new LlmError(msg, 'server', status);
   if (/abort|timeout/i.test(msg)) return new LlmError(msg, 'timeout');
@@ -21,130 +22,61 @@ function mapError(err: unknown, status?: number): LlmError {
   return new LlmError(msg, 'unknown', status);
 }
 
-async function withTimeout<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
-  if (signal?.aborted) throw new LlmError('Aborted', 'timeout');
-  return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new LlmError('Request timed out', 'timeout')), DEFAULT_TIMEOUT_MS);
-    const onAbort = () => {
-      clearTimeout(timer);
-      reject(new LlmError('Aborted', 'timeout'));
-    };
-    signal?.addEventListener('abort', onAbort, { once: true });
-    promise
-      .then((v) => {
-        clearTimeout(timer);
-        signal?.removeEventListener('abort', onAbort);
-        resolve(v);
-      })
-      .catch((e) => {
-        clearTimeout(timer);
-        signal?.removeEventListener('abort', onAbort);
-        reject(e);
-      });
-  });
-}
-
-async function listModelsRest(apiKey: string, signal?: AbortSignal): Promise<string[]> {
-  const url = 'https://generativelanguage.googleapis.com/v1beta/models';
-  const res = await fetch(url, {
-    headers: { 'x-goog-api-key': apiKey },
-    signal,
-  });
-  if (!res.ok) throw mapError(await res.text(), res.status);
-  const body = (await res.json()) as { models?: Array<{ name?: string }> };
-  return (body.models ?? [])
-    .map((m) => m.name?.replace(/^models\//, '') ?? '')
-    .filter(Boolean);
-}
-
-async function generateRest(options: LlmGenerateOptions): Promise<LlmGenerateResult> {
-  const model = options.model.replace(/^models\//, '');
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
-  const generationConfig: Record<string, unknown> = {
-    temperature: clampTemperature(options.temperature),
-    maxOutputTokens: options.maxOutputTokens ?? 8192,
-    responseMimeType: 'application/json',
-  };
-  if (options.responseSchema) {
-    generationConfig.responseSchema = options.responseSchema;
-  }
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-goog-api-key': options.apiKey,
-    },
-    body: JSON.stringify({
-      systemInstruction: { parts: [{ text: options.systemInstruction }] },
-      contents: [{ role: 'user', parts: [{ text: options.userText }] }],
-      generationConfig,
-    }),
-    signal: options.signal,
-  });
-  if (!res.ok) throw mapError(await res.text(), res.status);
-  const data = (await res.json()) as {
-    candidates?: Array<{
-      finishReason?: string;
-      content?: { parts?: Array<{ text?: string }> };
-    }>;
-  };
-  const cand = data.candidates?.[0];
-  const text = cand?.content?.parts?.map((p) => p.text ?? '').join('') ?? '';
-  if (!text.trim()) throw new LlmError('Empty candidate', 'blocked');
-  return { text, model: options.model, finishReason: cand?.finishReason };
-}
-
 export class GeminiProvider implements LlmProvider {
   readonly id = 'gemini';
 
-  async listModels(apiKey: string, signal?: AbortSignal): Promise<string[]> {
+  constructor(private readonly apiKey = '') {}
+
+  async listModels(apiKey?: string, signal?: AbortSignal): Promise<string[]> {
+    const key = apiKey || this.apiKey;
     try {
-      const ai = new GoogleGenAI({ apiKey });
-      const pager = await withTimeout(
-        ai.models.list() as Promise<AsyncIterable<{ name?: string }>>,
-        signal,
-      );
+      const ai = new GoogleGenAI({ apiKey: key });
+      const pager = await ai.models.list();
       const names: string[] = [];
-      for await (const m of pager) {
+      for await (const m of pager as AsyncIterable<{
+        name?: string;
+        supportedActions?: string[];
+        supportedGenerationMethods?: string[];
+      }>) {
         const name = m.name?.replace(/^models\//, '');
-        if (name) names.push(name);
+        const actions = [...(m.supportedActions ?? []), ...(m.supportedGenerationMethods ?? [])];
+        if (!name) continue;
+        if (actions.length && !actions.includes('generateContent')) continue;
+        names.push(name);
       }
       if (names.length) return names;
     } catch {
-      // fall through to REST
+      /* REST fallback */
     }
-    return listModelsRest(apiKey, signal);
+    return listModelsRest(key, signal);
   }
 
   async generate(options: LlmGenerateOptions): Promise<LlmGenerateResult> {
     const temperature = clampTemperature(options.temperature);
+    const key = options.apiKey || this.apiKey;
+    const ctrl = options.signal ?? new AbortController().signal;
     try {
-      const ai = new GoogleGenAI({ apiKey: options.apiKey });
-      const response = await withTimeout(
-        ai.models.generateContent({
-          model: options.model,
-          contents: options.userText,
-          config: {
-            temperature,
-            maxOutputTokens: options.maxOutputTokens ?? 8192,
-            responseMimeType: 'application/json',
-            ...(options.responseSchema ? { responseSchema: options.responseSchema } : {}),
-            systemInstruction: options.systemInstruction,
-          },
-        }),
-        options.signal,
-      );
-
-      const text = response.text ?? '';
-      if (!text.trim()) throw new LlmError('Empty candidate', 'blocked');
-      return {
-        text,
+      const ai = new GoogleGenAI({ apiKey: key });
+      const response = await ai.models.generateContent({
         model: options.model,
-        finishReason: response.candidates?.[0]?.finishReason,
-      };
+        contents: options.userText,
+        config: {
+          temperature,
+          maxOutputTokens: options.maxOutputTokens ?? 8192,
+          responseMimeType: 'application/json',
+          ...(options.responseSchema ? { responseSchema: options.responseSchema } : {}),
+          systemInstruction: options.systemInstruction,
+          abortSignal: ctrl instanceof AbortSignal ? ctrl : undefined,
+        },
+      });
+      const text = (response as { text?: string }).text ?? '';
+      const finish = (response as { candidates?: Array<{ finishReason?: string }> }).candidates?.[0]
+        ?.finishReason;
+      if (!text.trim()) throw new LlmError('Empty candidate', 'blocked');
+      return { text, model: options.model, finishReason: finish };
     } catch (err) {
       if (err instanceof LlmError) throw err;
-      return withTimeout(generateRest({ ...options, temperature }), options.signal);
+      return generateRest({ ...options, apiKey: key, temperature }, ctrl);
     }
   }
 
@@ -152,6 +84,90 @@ export class GeminiProvider implements LlmProvider {
     const full = await this.generate(options);
     yield full.text;
     return full;
+  }
+}
+
+async function listModelsRest(apiKey: string, signal?: AbortSignal): Promise<string[]> {
+  const names: string[] = [];
+  let pageToken = '';
+  do {
+    const url = new URL(LIST_URL);
+    if (pageToken) url.searchParams.set('pageToken', pageToken);
+    const res = await fetch(url.toString(), {
+      headers: { 'x-goog-api-key': apiKey },
+      signal,
+    });
+    if (!res.ok) throw mapError(await res.text(), res.status);
+    const body = (await res.json()) as {
+      models?: Array<{
+        name?: string;
+        supportedGenerationMethods?: string[];
+      }>;
+      nextPageToken?: string;
+    };
+    for (const m of body.models ?? []) {
+      const name = m.name?.replace(/^models\//, '') ?? '';
+      const methods = m.supportedGenerationMethods ?? [];
+      if (!name) continue;
+      if (methods.length && !methods.includes('generateContent')) continue;
+      names.push(name);
+    }
+    pageToken = body.nextPageToken ?? '';
+  } while (pageToken);
+  return names;
+}
+
+async function generateRest(
+  options: LlmGenerateOptions,
+  signal?: AbortSignal,
+): Promise<LlmGenerateResult> {
+  const model = options.model.replace(/^models\//, '');
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
+  const generationConfig: Record<string, unknown> = {
+    temperature: clampTemperature(options.temperature),
+    maxOutputTokens: options.maxOutputTokens ?? 8192,
+    responseMimeType: 'application/json',
+  };
+  if (options.responseSchema) generationConfig.responseSchema = options.responseSchema;
+
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), DEFAULT_TIMEOUT_MS);
+  const onAbort = () => ac.abort();
+  signal?.addEventListener('abort', onAbort, { once: true });
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': options.apiKey,
+      },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: options.systemInstruction }] },
+        contents: [{ role: 'user', parts: [{ text: options.userText }] }],
+        generationConfig,
+      }),
+      signal: ac.signal,
+    });
+    if (!res.ok) throw mapError(await res.text(), res.status);
+    const data = (await res.json()) as {
+      candidates?: Array<{
+        finishReason?: string;
+        content?: { parts?: Array<{ text?: string }> };
+      }>;
+    };
+    const cand = data.candidates?.[0];
+    const text = cand?.content?.parts?.map((p) => p.text ?? '').join('') ?? '';
+    if (!text.trim()) throw new LlmError('Empty candidate', 'blocked');
+    if (cand?.finishReason && cand.finishReason !== 'STOP' && cand.finishReason !== 'MAX_TOKENS') {
+      throw new LlmError(`finishReason=${cand.finishReason}`, 'blocked');
+    }
+    return { text, model: options.model, finishReason: cand?.finishReason };
+  } catch (err) {
+    if (err instanceof LlmError) throw err;
+    throw mapError(err);
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener('abort', onAbort);
   }
 }
 

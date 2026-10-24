@@ -169,12 +169,9 @@ export function extractSamples(doc: Document): ExtractResult<SamplesData> {
       evidence.push('test-cases-tab');
       roots.push(tabPanel);
     }
-    if (roots.length === 0) {
-      const main = doc.body;
-      if (main && SAMPLE_TEST_CASES_LABELS.some((l) => (main.textContent ?? '').includes(l))) {
-        evidence.push('label-in-body');
-        roots.push(main);
-      }
+    if (roots.length === 0 && doc.body) {
+      evidence.push('body-fallback');
+      roots.push(doc.body);
     }
 
     const collapsed = isCollapsed(accordion, doc);

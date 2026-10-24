@@ -1,22 +1,18 @@
 /**
- * Service worker: message router, Gemini, queue, cache, helper client.
- * API key never leaves this worker toward content scripts.
+ * Service worker: Gemini client, queue, cache, helper client, message router.
+ * API key never sent to content scripts.
  */
 import { isEnvelope, type Envelope } from '../shared/messages';
-import { DEFAULT_SETTINGS, type Settings } from '../shared/types';
-import {
-  bumpDailyRequestCount,
-  loadSettings,
-  publicSettings,
-  saveSettings,
-} from './settingsStore';
+import { DEFAULT_SETTINGS, type QuestionType, type Settings } from '../shared/types';
+import type { PageSnapshot } from '../shared/types';
+import { bumpDailyRequestCount, loadSettings, publicSettings, saveSettings } from './settingsStore';
 import { SuggestionCache } from './cache';
 import { GeminiProvider } from './llm/geminiProvider';
 import { pickDefaultModels } from './llm/modelPick';
 import { RequestQueue } from './queue';
 import { helperHealth, helperVerify } from './helperClient';
 import { runPipeline } from './pipeline';
-import type { PageSnapshot } from '../shared/types';
+import { readEditorMainWorld } from '../injected/readEditor';
 
 const cache = new SuggestionCache();
 const queue = new RequestQueue();
@@ -28,6 +24,10 @@ function scoreSnapshot(s: PageSnapshot): number {
   if (s.samples.ok && s.samples.value?.status === 'ok') n += 3;
   if (s.question.ok) n += 2;
   return n;
+}
+
+function isOptionsSender(sender: chrome.runtime.MessageSender): boolean {
+  return Boolean(sender.url?.includes('options.html'));
 }
 
 chrome.runtime.onInstalled.addListener(() => {
@@ -77,7 +77,8 @@ async function handleMessage(
 
     case 'GET_SETTINGS': {
       const s = await loadSettings();
-      return { ok: true, settings: publicSettings(s), full: s };
+      if (isOptionsSender(sender)) return { ok: true, settings: s };
+      return { ok: true, settings: publicSettings(s) };
     }
 
     case 'SET_SETTINGS': {
@@ -87,6 +88,10 @@ async function handleMessage(
         return { ok: true };
       }
       const { __clearCache: _, ...rest } = payload;
+      if (!isOptionsSender(sender)) {
+        delete rest.geminiApiKey;
+        delete rest.helperToken;
+      }
       const s = await saveSettings(rest);
       return { ok: true, settings: publicSettings(s) };
     }
@@ -96,13 +101,13 @@ async function handleMessage(
       if (!s.geminiApiKey) return { ok: false, error: 'Add your Gemini key in Options' };
       const provider = new GeminiProvider(s.geminiApiKey);
       const models = await provider.listModels();
-      const { fast, strong } = pickDefaultModels(models);
+      const picked = pickDefaultModels(models);
       await saveSettings({
         models,
-        fastModel: s.fastModel || fast,
-        strongModel: s.strongModel || strong,
+        fastModel: s.fastModel || picked.fast,
+        strongModel: s.strongModel || picked.strong,
       });
-      return { ok: true, models, fast: s.fastModel || fast, strong: s.strongModel || strong };
+      return { ok: true, models, fast: s.fastModel || picked.fast, strong: s.strongModel || picked.strong };
     }
 
     case 'TEST_HELPER': {
@@ -120,12 +125,9 @@ async function handleMessage(
       if (tabId == null) return { ok: false };
       const score = scoreSnapshot(snapshot);
       const prev = frameBest.get(tabId);
-      if (!prev || score >= prev.score || prev.snapshot.signature !== snapshot.signature) {
-        if (!prev || score >= prev.score) {
-          frameBest.set(tabId, { frameId, snapshot, score });
-        }
+      if (!prev || score >= prev.score) {
+        frameBest.set(tabId, { frameId, snapshot, score });
       }
-      // Top frame owns panel; pipeline starts from best frame data
       if (frameId === 0 || score >= (prev?.score ?? 0)) {
         void maybePipeline(tabId, snapshot);
       }
@@ -135,26 +137,52 @@ async function handleMessage(
     case 'REQUEST_SUGGEST': {
       if (tabId == null) return { ok: false };
       const snap =
-        (msg.payload as { snapshot?: PageSnapshot }).snapshot ??
-        frameBest.get(tabId)?.snapshot;
+        (msg.payload as { snapshot?: PageSnapshot }).snapshot ?? frameBest.get(tabId)?.snapshot;
       if (!snap) return { ok: false, error: 'No page snapshot' };
-      return queue.enqueue(snap.signature, () => runSuggest(tabId, snap, false));
+      const stronger = Boolean((msg.payload as { stronger?: boolean }).stronger);
+      return queue.enqueue(snap.signature, (signal) => runSuggest(tabId, snap, stronger, signal));
+    }
+
+    case 'TYPE_PICK': {
+      const { signature, type } = msg.payload as { signature: string; type: QuestionType };
+      const s = await loadSettings();
+      await saveSettings({ typeOverrides: { ...s.typeOverrides, [signature]: type } });
+      if (tabId == null) return { ok: true };
+      const snap = frameBest.get(tabId)?.snapshot;
+      if (snap) void runSuggest(tabId, snap, false);
+      return { ok: true };
+    }
+
+    case 'NOT_QUIZ': {
+      const { signature } = msg.payload as { signature: string };
+      const s = await loadSettings();
+      await saveSettings({ notQuizOverrides: [...s.notQuizOverrides, signature] });
+      return { ok: true };
+    }
+
+    case 'MUTE_PAGE': {
+      const { signature } = msg.payload as { signature: string };
+      const s = await loadSettings();
+      await saveSettings({ mutedPages: [...s.mutedPages, signature] });
+      return { ok: true };
     }
 
     case 'VERIFY_CODE':
     case 'CHECK_MY_CODE': {
       const s = await loadSettings();
-      const { code, tests } = msg.payload as {
+      const { code, tests, allowFileIo } = msg.payload as {
         code: string;
         tests: Array<{ id: string; input: string; expected: string }>;
+        allowFileIo?: boolean;
       };
       try {
         const result = await helperVerify(s.helperPort, s.helperToken, {
           code,
-          tests,
+          tests: tests ?? [],
           std: s.cStandard,
           timeoutMs: s.testTimeoutMs,
           o2Check: s.o2UbCheck,
+          allowFileIo,
         });
         return { ok: true, result };
       } catch (e) {
@@ -167,10 +195,7 @@ async function handleMessage(
       const t = tabs[0];
       if (!t?.id) return { ok: false, error: 'No active tab' };
       try {
-        const report = await chrome.tabs.sendMessage(t.id, {
-          type: 'DIAGNOSTICS_REPORT',
-          payload: {},
-        });
+        const report = await chrome.tabs.sendMessage(t.id, { type: 'DIAGNOSTICS_REPORT', payload: {} });
         return report;
       } catch {
         return { ok: false, error: 'Open a CodeTantra coding tab first.' };
@@ -190,7 +215,8 @@ async function handleMessage(
 async function maybePipeline(tabId: number, snapshot: PageSnapshot) {
   const s = await loadSettings();
   if (!s.consentAccepted || !s.autoSuggest) return;
-  if (snapshot.probe.kind === 'quiz') {
+  if (s.mutedPages.includes(snapshot.signature)) return;
+  if (snapshot.probe.kind === 'quiz' && !s.notQuizOverrides.includes(snapshot.signature)) {
     await chrome.tabs.sendMessage(tabId, {
       type: 'PIPELINE_STATUS',
       payload: { state: 'QuizIgnored' },
@@ -198,49 +224,70 @@ async function maybePipeline(tabId: number, snapshot: PageSnapshot) {
     return;
   }
   if (snapshot.probe.kind !== 'coding') return;
-  void queue.enqueue(snapshot.signature, () => runSuggest(tabId, snapshot, true));
+  void queue.enqueue(snapshot.signature, (signal) => runSuggest(tabId, snapshot, false, signal));
 }
 
-async function runSuggest(tabId: number, snapshot: PageSnapshot, fromAuto: boolean) {
+async function maybeMainWorldEditor(tabId: number, snapshot: PageSnapshot): Promise<PageSnapshot> {
+  const granted = await chrome.permissions.contains({ permissions: ['scripting'] });
+  if (!granted) return snapshot;
+  try {
+    const [inj] = await chrome.scripting.executeScript({
+      target: { tabId, allFrames: true },
+      world: 'MAIN',
+      func: readEditorMainWorld,
+    });
+    const text = (inj?.result as { text?: string } | undefined)?.text;
+    if (text && snapshot.editor.value) {
+      snapshot.editor.value = {
+        ...snapshot.editor.value,
+        text,
+        partial: false,
+        source: 'main_world',
+      };
+    }
+  } catch {
+    /* optional */
+  }
+  return snapshot;
+}
+
+async function runSuggest(tabId: number, snapshot: PageSnapshot, stronger: boolean, signal?: AbortSignal) {
   const s = await loadSettings();
-  if (!s.geminiApiKey) {
+  if (!s.geminiApiKey && !(typeof __TEST_HOST__ !== 'undefined' && __TEST_HOST__)) {
     await chrome.tabs.sendMessage(tabId, {
       type: 'PIPELINE_STATUS',
-      payload: {
-        state: 'Error',
-        error: 'Add your Gemini key in Options',
-      },
+      payload: { state: 'Error', error: 'Add your Gemini key in Options' },
     });
     return { ok: false };
   }
 
-  const keepAlive = setInterval(() => {
-    void chrome.runtime.getPlatformInfo();
-  }, 20_000);
+  await chrome.tabs.sendMessage(tabId, {
+    type: 'PIPELINE_STATUS',
+    payload: { state: 'Thinking' },
+  });
+
+  const snap = await maybeMainWorldEditor(tabId, snapshot);
 
   try {
     await bumpDailyRequestCount();
+    await chrome.storage.session?.set({ inflight: { signature: snap.signature, tabId } });
     const result = await runPipeline({
-      snapshot,
+      snapshot: snap,
       settings: s,
       cache,
-      stronger: false,
+      stronger,
+      signal,
     });
-    await chrome.tabs.sendMessage(tabId, {
-      type: 'SUGGESTION',
-      payload: result,
-    });
-    return { ok: true, result, fromAuto };
+    await chrome.storage.session?.remove('inflight');
+    await chrome.tabs.sendMessage(tabId, { type: 'SUGGESTION', payload: result });
+    return { ok: true, result };
   } catch (e) {
     await chrome.tabs.sendMessage(tabId, {
       type: 'PIPELINE_STATUS',
       payload: { state: 'Error', error: String(e) },
     });
     return { ok: false, error: String(e) };
-  } finally {
-    clearInterval(keepAlive);
   }
 }
 
-// Ensure DEFAULT_SETTINGS referenced for tree-shaking clarity
 void DEFAULT_SETTINGS;

@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head><meta charset="UTF-8" /><title>Spy fixture</title></head>
+  <body>
+    <section id="statement" class="question-panel">
+      <h2 class="question-heading">4.1.7. Fill in the missing code</h2>
+      <p>Fill in the missing code to implement addition.</p>
+      <div class="sample-test-cases">
+        <button aria-expanded="true">Sample Test Cases</button>
+        <div><span>Input</span><pre>10 5</pre><span>Output</span><pre>15</pre></div>
+      </div>
+    </section>
+    <div id="editor" class="monaco-editor">
+      <div class="margin-view-overlays"><div class="line-numbers">1</div></div>
+      <div class="view-lines"><div class="view-line">int sum( ) { // Write the code</div></div>
+    </div>
+    <button>Submit</button>
+    <div>Terminal</div>
+    <div>Test cases</div>
+    <pre id="spy-log"></pre>
+    <script>
+      window.__spy = { untrusted: 0, mutations: 0, events: [] };
+      const types = ['keydown','keyup','keypress','beforeinput','input','paste','click','mousedown','focusin'];
+      function note(ev) {
+        if (ev.isTrusted === false) {
+          window.__spy.untrusted += 1;
+          window.__spy.events.push(ev.type);
+        }
+      }
+      for (const t of types) {
+        document.addEventListener(t, note, true);
+      }
+      const obs = new MutationObserver(() => { window.__spy.mutations += 1; });
+      obs.observe(document.getElementById('editor'), { childList: true, subtree: true, characterData: true });
+      obs.observe(document.getElementById('statement'), { childList: true, subtree: true, characterData: true });
+    </script>
+  </body>
+</html>
