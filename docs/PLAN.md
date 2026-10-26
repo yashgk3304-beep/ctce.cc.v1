@@ -4,7 +4,7 @@ Date: 2026-10-24
 
 ## Goal
 
-Manifest V3 Chrome extension that reads CodeTantra coding pages (question, editor, samples), classifies, asks Gemini for a proposal, verifies locally with gcc, and shows a read-only review panel. Never writes to the page.
+Manifest V3 Chrome extension that reads visible CodeTantra coding pages (question, editor, samples), classifies, asks Gemini for a proposal, verifies locally with gcc, and shows a review panel. Writing is available only after an explicit user action, followed by read-back verification; Run/Submit/Next are never automated.
 
 ## Assumptions (unknown facts → configurable)
 
@@ -28,7 +28,7 @@ Manifest V3 Chrome extension that reads CodeTantra coding pages (question, edito
 src/background/   Gemini, queue, cache, helper client, router
 src/content/      probe, extractors, heuristics, tracker, frames, selectors.config.ts
 src/content/panel/ Shadow-DOM UI
-src/injected/     MAIN-world read-only getters (opt-in scripting)
+src/injected/     MAIN-world editor readers and explicit user-invoked writer adapters
 src/shared/       types, schemas, normalize, redact, hash, errorMap, hostConfig
 src/options/      options page
 helper/           local compile-and-run

@@ -14,7 +14,7 @@ describe('extractEditor', () => {
       </div>`);
     const res = extractEditor(doc);
     expect(res.ok).toBe(true);
-    expect(res.value?.text).toContain('  int\t x;');
+    expect(res.value?.text).toContain('  int\tx;');
     expect(res.value?.engine).toBe('monaco');
   });
 
@@ -42,7 +42,7 @@ describe('extractEditor', () => {
     expect(res.value?.visibleLineStart).toBe(2);
     expect(res.value?.visibleLineEnd).toBe(26);
     expect(res.value?.partial).toBe(true);
-    expect(res.value?.text).toMatch(/TODO/);
+    expect(res.value?.text).toMatch(/Write the code/);
   });
 
   it('detects ace engine', () => {

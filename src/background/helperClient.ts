@@ -2,23 +2,56 @@ import { HOST_CONFIG } from '../shared/hostConfig';
 
 export interface HelperHealth {
   ok: boolean;
+  gccVersion?: string;
   gcc?: string;
+  platform?: string;
   detail?: string;
 }
 
+export interface HelperTestCase {
+  id: string;
+  input: string;
+  expected: string;
+}
+
 export interface HelperVerifyRequest {
-  source: string;
-  stdin: string;
+  code: string;
+  tests: HelperTestCase[];
+  std: string;
   timeoutMs: number;
-  cStandard: string;
+  o2Check?: boolean;
+  allowFileIo?: boolean;
+  debugTimings?: boolean;
+}
+
+export interface MatchModes {
+  strict: boolean;
+  trimmed: boolean;
+  whitespaceInsensitive: boolean;
+  echoAware: boolean;
+}
+
+export interface HelperTestResult {
+  id: string;
+  status: 'pass' | 'fail' | 'timeout' | 'runtime_error' | 'output_limit';
+  exitCode: number;
+  ms: number;
+  actual: string;
+  matches: MatchModes;
+  diff: string;
 }
 
 export interface HelperVerifyResult {
-  stdout: string;
-  stderr: string;
-  exitCode: number;
-  timedOut: boolean;
-  compileError?: string;
+  compile: { ok: boolean; warnings: string[]; errors: string[] };
+  results: HelperTestResult[];
+  timings?: {
+    gccCompileMs: number;
+    sampleExecutionMs: number;
+    totalMs: number;
+  };
+  blocked?: string;
+  needsRunAnyway?: boolean;
+  o2Differ?: boolean;
 }
 
 export class HelperClient {
@@ -31,7 +64,7 @@ export class HelperClient {
     return `http://127.0.0.1:${this.port}`;
   }
 
-  private headers(): HeadersInit {
+  private headers(): Record<string, string> {
     const h: Record<string, string> = { Accept: 'application/json' };
     if (this.token) h['X-Helper-Token'] = this.token;
     return h;
@@ -42,9 +75,7 @@ export class HelperClient {
       headers: this.headers(),
       signal,
     });
-    if (!res.ok) {
-      return { ok: false, detail: `HTTP ${res.status}` };
-    }
+    if (!res.ok) return { ok: false, detail: `HTTP ${res.status}` };
     return (await res.json()) as HelperHealth;
   }
 
@@ -56,7 +87,8 @@ export class HelperClient {
       signal,
     });
     if (!res.ok) {
-      throw new Error(`Helper verify failed: HTTP ${res.status}`);
+      const text = await res.text().catch(() => '');
+      throw new Error(`Helper verify failed: HTTP ${res.status} ${text}`);
     }
     return (await res.json()) as HelperVerifyResult;
   }
@@ -64,4 +96,16 @@ export class HelperClient {
 
 export function createHelperClient(port?: number, token?: string): HelperClient {
   return new HelperClient(port ?? HOST_CONFIG.helperPort, token ?? '');
+}
+
+export async function helperHealth(port: number, token: string): Promise<HelperHealth> {
+  return createHelperClient(port, token).health();
+}
+
+export async function helperVerify(
+  port: number,
+  token: string,
+  body: HelperVerifyRequest,
+): Promise<HelperVerifyResult> {
+  return createHelperClient(port, token).verify(body);
 }

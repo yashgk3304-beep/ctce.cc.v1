@@ -1,4 +1,4 @@
-/** SHA-256 helpers (Web Crypto in extension; Node crypto in tests). */
+/** SHA-256 helpers (Web Crypto is available in Chrome extensions and Node 20+). */
 
 export async function sha256Hex(input: string): Promise<string> {
   const data = new TextEncoder().encode(input);
@@ -6,9 +6,7 @@ export async function sha256Hex(input: string): Promise<string> {
     const buf = await globalThis.crypto.subtle.digest('SHA-256', data);
     return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
   }
-  // Node fallback for unit tests without subtle
-  const { createHash } = await import('node:crypto');
-  return createHash('sha256').update(input, 'utf8').digest('hex');
+  throw new Error('Web Crypto SHA-256 is unavailable');
 }
 
 export async function signatureFromParts(
@@ -24,6 +22,7 @@ export async function cacheKey(
   signature: string,
   model: string,
   promptVersion: string,
+  typeHint = '',
 ): Promise<string> {
-  return sha256Hex(`${signature}|${model}|${promptVersion}`);
+  return sha256Hex(`${signature}|${model}|${promptVersion}|${typeHint}`);
 }

@@ -70,6 +70,22 @@ export interface SamplesData {
 
 export type EditorEngine = 'monaco' | 'ace' | 'codemirror5' | 'codemirror6' | 'unknown';
 
+export type ApiKeySlotId = 'primary' | 'backup1' | 'backup2';
+
+export interface ApiKeySlot {
+  apiKey: string;
+  model: string;
+}
+
+export interface ApiKeySlotStatus {
+  invalid?: boolean;
+  cooldownUntil?: number;
+  exhaustedUntil?: number;
+  lastError?: 'invalid_key' | 'rate_limit' | 'daily_quota';
+}
+
+export type WriteMode = 'replace' | 'insert';
+
 export interface EditorData {
   engine: EditorEngine;
   fileName: string;
@@ -89,6 +105,48 @@ export interface PageSnapshot {
   editor: ExtractResult<EditorData>;
   signature: string;
   capturedAt: number;
+  captureTiming?: CaptureTiming;
+}
+
+export interface CaptureTiming {
+  probeMs: number;
+  questionExtractionMs: number;
+  sampleExtractionMs: number;
+  editorExtractionMs: number;
+  mainWorldEditorMs: number;
+  signatureMs: number;
+  totalMs: number;
+}
+
+/** Sanitized local performance data. Never includes question, editor, or sample text. */
+export interface PerformanceRecord {
+  timestamp: number;
+  modelIds: string[];
+  apiKeySlot?: ApiKeySlotId;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  attempts: number;
+  retries: number;
+  cacheHit: boolean;
+  captureMs: number;
+  browserProbeMs: number;
+  questionExtractionMs: number;
+  sampleExtractionMs: number;
+  editorExtractionMs: number;
+  mainWorldEditorMs: number;
+  signatureMs: number;
+  promptBuildMs: number;
+  modelRequestMs: number;
+  responseParseMs: number;
+  gccCompileMs: number;
+  sampleExecutionMs: number;
+  helperRoundTripMs: number;
+  compileOk: boolean | null;
+  sampleTestsPassed: number | null;
+  sampleTestCount: number | null;
+  totalMs: number;
+  errorCode?: string;
+  errorStatus?: number;
 }
 
 export interface Classification {
@@ -115,6 +173,8 @@ export interface BugFix {
 export interface CodeAnswer {
   type: 'complete_program' | 'fill_in_blank' | 'debugging';
   final_code: string;
+  language?: string;
+  blanks?: Array<{ index: number; code: string }>;
   edits: CodeEdit[];
   bugs: BugFix[];
   explanation: string[];
@@ -129,6 +189,10 @@ export interface McqOptionJudgement {
 }
 
 export interface McqAnswer {
+  type?: 'mcq';
+  language?: string;
+  code?: string;
+  blanks?: Array<{ index: number; code: string }>;
   selected: string[];
   options: McqOptionJudgement[];
   needs_code_run: boolean;
@@ -141,6 +205,8 @@ export type SuggestionAnswer = CodeAnswer | McqAnswer;
 
 export interface Settings {
   geminiApiKey: string;
+  apiKeySlots: Record<ApiKeySlotId, ApiKeySlot>;
+  apiKeySlotStatus: Partial<Record<ApiKeySlotId, ApiKeySlotStatus>>;
   fastModel: string;
   strongModel: string;
   models: string[];
@@ -162,10 +228,20 @@ export interface Settings {
   mutedPages: string[];
   typeOverrides: Record<string, QuestionType>;
   notQuizOverrides: string[];
+  editorSelectorsByHost: Record<string, string>;
+  writeMode: WriteMode;
+  typingAnimation: boolean;
+  typingCharsPerSecond: number;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
   geminiApiKey: '',
+  apiKeySlots: {
+    primary: { apiKey: '', model: '' },
+    backup1: { apiKey: '', model: '' },
+    backup2: { apiKey: '', model: '' },
+  },
+  apiKeySlotStatus: {},
   fastModel: '',
   strongModel: '',
   models: [],
@@ -187,6 +263,10 @@ export const DEFAULT_SETTINGS: Settings = {
   mutedPages: [],
   typeOverrides: {},
   notQuizOverrides: [],
+  editorSelectorsByHost: {},
+  writeMode: 'replace',
+  typingAnimation: false,
+  typingCharsPerSecond: 60,
 };
 
-export const PROMPT_VERSION = '1';
+export const PROMPT_VERSION = '3';

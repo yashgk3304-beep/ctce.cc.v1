@@ -1,5 +1,5 @@
 import type { ExtractResult, SampleTest, SamplesData, SamplesStatus } from '../../shared/types';
-import { normalizeText, toLf } from '../../shared/normalize';
+import { toLf } from '../../shared/normalize';
 import {
   SAMPLE_ACCORDION_SELECTORS,
   SAMPLE_INPUT_LABELS,
@@ -26,11 +26,13 @@ function findAccordion(doc: Document): Element | null {
 
 function isCollapsed(accordion: Element | null, doc: Document): boolean {
   if (!accordion) return false;
-  if (accordion instanceof HTMLDetailsElement && !accordion.open) return true;
+  const DetailsElement = doc.defaultView?.HTMLDetailsElement;
+  if (DetailsElement && accordion instanceof DetailsElement && !accordion.open) return true;
   const aria = accordion.getAttribute('aria-expanded');
   if (aria === 'false') return true;
   const panel = accordion.querySelector('.accordion-collapse, .collapse, [data-testid="sample-panel"]');
-  if (panel instanceof HTMLElement) {
+  const HTMLElementClass = doc.defaultView?.HTMLElement;
+  if (HTMLElementClass && panel instanceof HTMLElementClass) {
     const hidden =
       panel.hidden ||
       panel.classList.contains('collapse') ||
@@ -169,12 +171,9 @@ export function extractSamples(doc: Document): ExtractResult<SamplesData> {
       evidence.push('test-cases-tab');
       roots.push(tabPanel);
     }
-    if (roots.length === 0) {
-      const main = doc.body;
-      if (main && SAMPLE_TEST_CASES_LABELS.some((l) => (main.textContent ?? '').includes(l))) {
-        evidence.push('label-in-body');
-        roots.push(main);
-      }
+    if (roots.length === 0 && doc.body) {
+      evidence.push('body-fallback');
+      roots.push(doc.body);
     }
 
     const collapsed = isCollapsed(accordion, doc);

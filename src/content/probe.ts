@@ -70,12 +70,7 @@ export function pageProbe(doc: Document): ProbeResult {
     if (codingUrl) evidence.push('coding-url-path');
     if (quizHeading) evidence.push('quiz-heading');
 
-    let quizScore = 0;
     let codingScore = 0;
-
-    if (quizUrl) quizScore += 3;
-    if (quizHeading) quizScore += 2;
-    if (!editor && !sampleLabel && !testTab) quizScore += 1;
 
     if (editor) codingScore += 3;
     if (sampleLabel || testTab) codingScore += 2;
@@ -83,18 +78,16 @@ export function pageProbe(doc: Document): ProbeResult {
     if (submitRun) codingScore += 1;
     if (codingUrl) codingScore += 1;
 
-    if (quizScore >= 3 && quizScore > codingScore) {
-      const confidence = Math.min(0.95, 0.5 + quizScore * 0.1);
-      return { kind: 'quiz', confidence, evidence };
+    // Generic course shells often have no editor in the top frame while the
+    // editor is hosted in a cross-origin frame. Lack of coding signals alone
+    // must not classify an ordinary course page as a quiz and disable the UI.
+    if (quizUrl || quizHeading) {
+      return { kind: 'quiz', confidence: quizUrl && quizHeading ? 0.95 : 0.85, evidence };
     }
 
     if (codingScore >= 2) {
       const confidence = Math.min(0.98, 0.45 + codingScore * 0.08);
       return { kind: 'coding', confidence, evidence };
-    }
-
-    if (quizScore > 0 && quizScore >= codingScore) {
-      return { kind: 'quiz', confidence: 0.4 + quizScore * 0.05, evidence };
     }
 
     return { kind: 'other', confidence: evidence.length ? 0.35 : 0.15, evidence };
