@@ -4,6 +4,7 @@ import type {
   Settings,
   SuggestionAnswer,
   VerificationBadge,
+  ApiKeySlotId,
 } from './types';
 
 export type MessageType =
@@ -27,7 +28,21 @@ export type MessageType =
   | 'MUTE_PAGE'
   | 'TYPE_PICK'
   | 'NOT_QUIZ'
-  | 'REPORT_PROBLEM';
+  | 'REPORT_PROBLEM'
+  | 'GET_PERFORMANCE_RECORDS'
+  | 'WRITE_ANSWER'
+  | 'RESTORE_WRITE'
+  | 'DIAGNOSE_EDITOR'
+  | 'PICK_EDITOR'
+  | 'CANCEL_EDITOR_PICK'
+  | 'PICK_EDITOR_CANCEL'
+  | 'EDITOR_PICK_MODE'
+  | 'EDITOR_PICKED'
+  | 'SELECT_MCQ_ANSWERS'
+  | 'ASK_ANYTHING'
+  | 'ASK_ANYTHING_REPLY'
+  | 'TEST_API_KEY_SLOT'
+  | 'RESET_API_KEY_STATUS';
 
 export interface Envelope<T = unknown> {
   type: MessageType;
@@ -50,6 +65,7 @@ export interface SuggestionPayload {
   }>;
   redactedPayloadPreview?: unknown;
   model?: string;
+  apiKeySlot?: ApiKeySlotId;
   error?: string;
 }
 

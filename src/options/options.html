@@ -10,18 +10,18 @@
     <main class="wrap">
       <h1>CT-C Assistant</h1>
       <p class="lede">
-        Read-only helper for CodeTantra C practice. Nothing is typed or clicked on the
-        CodeTantra page for you.
+        Review-first helper for CodeTantra C practice. It can write only after you click
+        “Write to editor”; you press Run or Submit yourself.
       </p>
 
       <section id="consent" class="card" hidden>
         <h2>First-run consent</h2>
         <p>
-          When you use auto-suggest, this extension sends to Google’s Gemini API only:
-          the visible question statement, visible editor code, visible sample tests, and
-          local type hints. It never sends your URL, cookies, account name, email, avatar,
-          or other page chrome. Text is redacted for emails, phones, and ID-like strings
-          before sending.
+          When you use auto-suggest, this extension sends the visible question statement,
+          visible editor code, visible sample tests, and local type hints to Gemini. Ask
+          Anything sends the text you type; visible screen context is attached only after
+          you click Read screen and review its preview. Email, phone, and ID-like text is
+          redacted. The extension does not send your URL, cookies, account name, or avatar.
         </p>
         <p>
           Data use differs between free and paid Gemini usage. Review the current
@@ -36,19 +36,44 @@
       </section>
 
       <section class="card" id="main-options">
-        <h2>Gemini</h2>
-        <label>
-          API key
-          <input type="password" id="api-key" autocomplete="off" spellcheck="false" />
-        </label>
+        <h2>Gemini API keys</h2>
+        <datalist id="gemini-model-suggestions">
+          <option value="gemini-2.5-flash"></option>
+          <option value="gemini-2.5-flash-lite"></option>
+          <option value="gemini-2.5-pro"></option>
+        </datalist>
+        <div class="key-slots">
+          <fieldset class="key-slot">
+            <legend>Primary</legend>
+            <label>API key<input type="password" id="key-primary" autocomplete="off" spellcheck="false" /></label>
+            <div class="row"><button type="button" id="show-primary" class="secondary">Show</button><button type="button" id="clear-primary" class="secondary">Remove key</button></div>
+            <label>Model name<input type="text" id="model-primary" list="gemini-model-suggestions" spellcheck="false" placeholder="Use selected Fast/Strong model" /></label>
+            <div class="row"><button type="button" id="test-primary">Test Primary</button><span id="slot-meta-primary" class="status" role="status"></span></div>
+          </fieldset>
+          <fieldset class="key-slot">
+            <legend>Backup 1</legend>
+            <label>API key<input type="password" id="key-backup1" autocomplete="off" spellcheck="false" /></label>
+            <div class="row"><button type="button" id="show-backup1" class="secondary">Show</button><button type="button" id="clear-backup1" class="secondary">Remove key</button></div>
+            <label>Model name<input type="text" id="model-backup1" list="gemini-model-suggestions" spellcheck="false" placeholder="Use selected Fast/Strong model" /></label>
+            <div class="row"><button type="button" id="test-backup1">Test Backup 1</button><span id="slot-meta-backup1" class="status" role="status"></span></div>
+          </fieldset>
+          <fieldset class="key-slot">
+            <legend>Backup 2</legend>
+            <label>API key<input type="password" id="key-backup2" autocomplete="off" spellcheck="false" /></label>
+            <div class="row"><button type="button" id="show-backup2" class="secondary">Show</button><button type="button" id="clear-backup2" class="secondary">Remove key</button></div>
+            <label>Model name<input type="text" id="model-backup2" list="gemini-model-suggestions" spellcheck="false" placeholder="Use selected Fast/Strong model" /></label>
+            <div class="row"><button type="button" id="test-backup2">Test Backup 2</button><span id="slot-meta-backup2" class="status" role="status"></span></div>
+          </fieldset>
+        </div>
         <p class="hint">
-          Stored only in <code>chrome.storage.local</code>, sent only as
+          Keys are stored only in <code>chrome.storage.local</code>, sent only as
           <code>x-goog-api-key</code>, never exposed to content scripts. Restrict the key
           to the Generative Language API and set quota alerts in Google AI Studio / Cloud.
         </p>
         <div class="row">
-          <button type="button" id="save-key">Save key</button>
+          <button type="button" id="save-key">Save settings and keys</button>
           <button type="button" id="load-models">Load models</button>
+          <button type="button" id="reset-api-status" class="secondary">Reset status</button>
         </div>
         <label>
           Fast model
@@ -77,6 +102,15 @@
           Test timeout (ms)
           <input type="number" id="test-timeout" min="500" max="30000" step="100" />
         </label>
+        <label>
+          Write mode
+          <select id="write-mode"><option value="replace">Replace all</option><option value="insert">Insert at cursor</option></select>
+        </label>
+        <label class="check"><input type="checkbox" id="typing-animation" /> Typing animation (off by default)</label>
+        <label>
+          Typing speed (characters per second)
+          <input type="number" id="typing-speed" min="1" max="1000" step="1" />
+        </label>
       </section>
 
       <section class="card">
@@ -101,6 +135,10 @@
         <h2>Cache &amp; privacy</h2>
         <button type="button" id="clear-cache">Clear suggestion cache</button>
         <label class="check"><input type="checkbox" id="logging" /> Local debug logs (redacted, off by default)</label>
+        <p class="hint">When enabled, up to 100 local timing records are saved without question text, code, tests, or credentials.</p>
+        <button type="button" id="copy-performance">Copy performance report</button>
+        <p class="hint">For a model comparison, enable logs, clear the suggestion cache, then collect 10–20 uncached questions per selected model. The report groups latency and visible-sample results by model path.</p>
+        <p id="performance-status" class="status" role="status"></p>
       </section>
 
       <section class="card">

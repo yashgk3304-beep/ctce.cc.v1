@@ -91,6 +91,23 @@ select {
   flex-wrap: wrap;
 }
 
+.key-slots {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.key-slot {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 0.7rem 0.9rem 0.9rem;
+  min-width: 0;
+}
+
+.key-slot legend {
+  font-weight: 650;
+  padding: 0 0.35rem;
+}
+
 button {
   font: inherit;
   padding: 0.5rem 0.9rem;
@@ -103,6 +120,12 @@ button {
 
 button:hover {
   filter: brightness(1.05);
+}
+
+button.secondary {
+  background: transparent;
+  border-color: var(--line);
+  color: var(--ink);
 }
 
 .hint {

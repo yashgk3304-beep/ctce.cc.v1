@@ -115,8 +115,10 @@ export const HELP_WIDGET_SELECTORS = NOISE_SELECTORS.filter((s) =>
 export const PLACEHOLDER_MARKERS = [
   '/* TODO',
   '// TODO',
+  '// Write the code',
   '____',
   '___',
+  '<blank>',
   'FILL_IN',
   'FILL IN',
   'YOUR CODE HERE',
@@ -124,6 +126,7 @@ export const PLACEHOLDER_MARKERS = [
   '<<<',
   '>>>',
   '/* YOUR CODE',
+  '/* your code */',
   '/* Write your code',
 ] as const;
 

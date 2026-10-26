@@ -10,7 +10,7 @@ import {
 function cloneWithoutNoise(root: ParentNode, doc: Document): HTMLElement {
   const host = doc.createElement('div');
   if (root instanceof HTMLElement) {
-    host.innerHTML = root.innerHTML;
+    host.appendChild(root.cloneNode(true));
   } else if (root instanceof DocumentFragment) {
     host.append(...Array.from(root.childNodes).map((n) => n.cloneNode(true)));
   }
